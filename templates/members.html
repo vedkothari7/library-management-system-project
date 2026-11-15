@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}Members Directory{% endblock %}
+{% block page_title %}Members Management{% endblock %}
+
+{% block content %}
+<div class="card">
+  <!-- Header with Register Action -->
+  <div class="card-header">
+    <div>
+      <h3 class="card-title">Registered Library Patrons</h3>
+      <p class="card-subtitle">Manage memberships, verify student and faculty borrower privileges</p>
+    </div>
+    <div style="display: flex; gap: 0.75rem;">
+      <a href="{{ url_for('export_members') }}" class="btn btn-secondary">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Export CSV
+      </a>
+      <button type="button" class="btn btn-primary" data-open-modal="registerMemberModal" onclick="openModal('registerMemberModal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="8.5" cy="7" r="4"/>
+          <line x1="20" y1="8" x2="20" y2="14"/>
+          <line x1="23" y1="11" x2="17" y2="11"/>
+        </svg>
+        Register New Member
+      </button>
+    </div>
+  </div>
+
+  <!-- Search and Type Filter Toolbar -->
+  <form method="GET" action="{{ url_for('members') }}" class="filter-bar">
+    <input type="text" name="q" class="filter-input" placeholder="Search by name, email, phone or code..." value="{{ current_query or '' }}">
+    <select name="type" class="filter-select">
+      <option value="All">All Membership Types</option>
+      <option value="Student" {% if current_type == 'Student' %}selected{% endif %}>Student</option>
+      <option value="Faculty" {% if current_type == 'Faculty' %}selected{% endif %}>Faculty</option>
+      <option value="General" {% if current_type == 'General' %}selected{% endif %}>General</option>
+    </select>
+    <button type="submit" class="btn btn-secondary">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      Filter
+    </button>
+    {% if current_query or (current_type and current_type != 'All') %}
+      <a href="{{ url_for('members') }}" class="btn btn-secondary" title="Reset filter">Clear</a>
+    {% endif %}
+  </form>
+
+  <!-- Members Table -->
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Member Code</th>
+          <th>Full Name</th>
+          <th>Contact Information</th>
+          <th>Membership Type</th>
+          <th>Active Loans</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if members %}
+          {% for member in members %}
+          <tr>
+            <td><span class="text-sub">{{ member.member_code }}</span></td>
+            <td>
+              <span class="text-title">{{ member.name }}</span>
+            </td>
+            <td>
+              <div style="font-size: 0.85rem;">{{ member.email }}</div>
+              <div class="text-sub">{{ member.phone }}</div>
+            </td>
+            <td>
+              {% if member.membership_type == 'Faculty' %}
+                <span class="badge badge-info">Faculty</span>
+              {% elif member.membership_type == 'Student' %}
+                <span class="badge badge-secondary">Student</span>
+              {% else %}
+                <span class="badge badge-secondary">General</span>
+              {% endif %}
+            </td>
+            <td><strong>{{ member.active_loans }}</strong> books on loan</td>
+            <td>
+              {% if member.status == 'Active' %}
+                <span class="badge badge-success">Active</span>
+              {% else %}
+                <span class="badge badge-danger">Suspended</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display: flex; gap: 0.4rem; align-items: center;">
+                <button type="button" class="btn btn-secondary btn-sm btn-edit-member"
+                        data-id="{{ member.id }}"
+                        data-name="{{ member.name }}"
+                        data-email="{{ member.email }}"
+                        data-phone="{{ member.phone }}"
+                        data-type="{{ member.membership_type }}"
+                        data-status="{{ member.status }}"
+                        title="Edit Member Information">
+                  Edit
+                </button>
+                {% if member.status == 'Active' %}
+                  <a href="{{ url_for('issue_books') }}?member_id={{ member.id }}" class="btn btn-primary btn-sm" title="Issue Book to Member">
+                    Issue
+                  </a>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="7" style="text-align: center; color: var(--color-slate-400); padding: 2.5rem;">
+              No library members matched your search criteria.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- =========================================================================
+     MODAL: REGISTER NEW MEMBER
+     ========================================================================= -->
+<div class="modal-backdrop" id="registerMemberModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 class="modal-title">Register New Patron</h3>
+      <button type="button" class="modal-close-btn" onclick="closeModal('registerMemberModal')">&times;</button>
+    </div>
+    <form method="POST" action="{{ url_for('add_member_route') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group full-width">
+            <label class="form-label" for="addMemberName">Full Name *</label>
+            <input type="text" id="addMemberName" name="name" class="form-control" placeholder="e.g. Eleanor Vance" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="addMemberEmail">Email Address *</label>
+            <input type="email" id="addMemberEmail" name="email" class="form-control" placeholder="e.g. eleanor.vance@example.com" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="addMemberPhone">Phone Number *</label>
+            <input type="text" id="addMemberPhone" name="phone" class="form-control" placeholder="e.g. +1 (555) 789-0123" required>
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label" for="addMemberType">Membership Classification *</label>
+            <select id="addMemberType" name="membership_type" class="form-control" required>
+              <option value="Student">Student (14-day checkout loan)</option>
+              <option value="Faculty">Faculty (30-day checkout loan)</option>
+              <option value="General">General Public (14-day checkout loan)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('registerMemberModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Complete Registration</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- =========================================================================
+     MODAL: EDIT MEMBER
+     ========================================================================= -->
+<div class="modal-backdrop" id="editMemberModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 class="modal-title">Edit Member Information</h3>
+      <button type="button" class="modal-close-btn" onclick="closeModal('editMemberModal')">&times;</button>
+    </div>
+    <form method="POST" id="editMemberForm" action="">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group full-width">
+            <label class="form-label" for="editMemberName">Full Name *</label>
+            <input type="text" id="editMemberName" name="name" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="editMemberEmail">Email Address *</label>
+            <input type="email" id="editMemberEmail" name="email" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="editMemberPhone">Phone Number *</label>
+            <input type="text" id="editMemberPhone" name="phone" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="editMemberType">Membership Classification *</label>
+            <select id="editMemberType" name="membership_type" class="form-control" required>
+              <option value="Student">Student</option>
+              <option value="Faculty">Faculty</option>
+              <option value="General">General</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="editMemberStatus">Account Status *</label>
+            <select id="editMemberStatus" name="status" class="form-control" required>
+              <option value="Active">Active (Eligible to borrow)</option>
+              <option value="Suspended">Suspended (Borrowing restricted)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('editMemberModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Update Member Details</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

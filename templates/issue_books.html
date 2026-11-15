@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Issue Books{% endblock %}
+{% block page_title %}Circulation: Issue Books{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+  <!-- Issue Book Form -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Check Out Book to Patron</h3>
+        <p class="card-subtitle">Select a registered member and book copy to create a loan record</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('issue_books') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-grid">
+          <!-- Member Selection -->
+          <div class="form-group">
+            <label class="form-label" for="memberSelect">Patron / Member *</label>
+            <select id="memberSelect" name="member_id" class="form-control" required>
+              <option value="">-- Choose Eligible Member --</option>
+              {% for member in members %}
+                <option value="{{ member.id }}" {% if selected_member_id == member.id %}selected{% endif %}>
+                  {{ member.name }} ({{ member.member_code }} - {{ member.membership_type }})
+                </option>
+              {% endfor %}
+            </select>
+            <span class="form-helper">Only active patrons without suspensions appear here.</span>
+          </div>
+
+          <!-- Book Selection -->
+          <div class="form-group">
+            <label class="form-label" for="bookSelect">Select Book *</label>
+            <select id="bookSelect" name="book_id" class="form-control" required>
+              <option value="">-- Choose Available Book --</option>
+              {% for book in books %}
+                <option value="{{ book.id }}" {% if selected_book_id == book.id %}selected{% endif %}>
+                  {{ book.title }} ({{ book.available_copies }} of {{ book.total_copies }} available)
+                </option>
+              {% endfor %}
+            </select>
+            <span class="form-helper">Only titles with available copies in stock are listed.</span>
+          </div>
+
+          <!-- Issue Date -->
+          <div class="form-group">
+            <label class="form-label" for="issueDate">Issue Date *</label>
+            <input type="date" id="issueDate" name="issue_date" class="form-control" value="{{ today_str }}" required>
+          </div>
+
+          <!-- Due Date -->
+          <div class="form-group">
+            <label class="form-label" for="dueDate">Due Date *</label>
+            <input type="date" id="dueDate" name="due_date" class="form-control" value="{{ default_due_str }}" required>
+            <span class="form-helper">Default: 14 days for students / 30 for faculty.</span>
+          </div>
+
+          <!-- Notes / Remarks -->
+          <div class="form-group full-width">
+            <label class="form-label" for="remarks">Circulation Remarks (Optional)</label>
+            <input type="text" id="remarks" name="remarks" class="form-control" placeholder="e.g. Course reserve reading / standard semester loan">
+          </div>
+        </div>
+
+        <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="reset" class="btn btn-secondary">Reset Form</button>
+          <button type="submit" class="btn btn-primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            Confirm & Issue Book
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Loan Rules & Guidance Card -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Circulation Policy</h3>
+        <p class="card-subtitle">Current rules enforced by the system</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <ul style="list-style: none; display: flex; flex-direction: column; gap: 1rem; font-size: 0.88rem; color: var(--color-slate-700);">
+        <li style="display: flex; gap: 0.75rem; align-items: flex-start;">
+          <span class="badge badge-info" style="margin-top: 2px;">Loan Period</span>
+          <div>Students may check out books for 14 calendar days; Faculty for 30 calendar days.</div>
+        </li>
+        <li style="display: flex; gap: 0.75rem; align-items: flex-start;">
+          <span class="badge badge-warning" style="margin-top: 2px;">Quota</span>
+          <div>Maximum 3 concurrent titles for students, 10 for faculty members.</div>
+        </li>
+        <li style="display: flex; gap: 0.75rem; align-items: flex-start;">
+          <span class="badge badge-danger" style="margin-top: 2px;">Late Fines</span>
+          <div>Overdue fines accrue at <strong>${{ "%.2f"|format(late_fee_per_day) }}</strong> per calendar day past due.</div>
+        </li>
+        <li style="display: flex; gap: 0.75rem; align-items: flex-start;">
+          <span class="badge badge-secondary" style="margin-top: 2px;">Stock Protection</span>
+          <div>Books with zero available copies are prevented from being checked out.</div>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Current Active Issues -->
+<div class="card" style="margin-top: 2rem;">
+  <div class="card-header">
+    <div>
+      <h3 class="card-title">Currently Issued Volumes</h3>
+      <p class="card-subtitle">Active patron loans recorded in SQLite</p>
+    </div>
+    <a href="{{ url_for('return_books') }}" class="btn btn-secondary btn-sm">Process a Return</a>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Loan ID</th>
+          <th>Book Title</th>
+          <th>Borrower</th>
+          <th>Issue Date</th>
+          <th>Due Date</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if active_loans %}
+          {% for issue in active_loans %}
+          <tr>
+            <td><span class="text-sub">{{ issue.transaction_code }}</span></td>
+            <td>
+              <span class="text-title">{{ issue.book_title }}</span>
+              <span class="text-sub">ISBN: {{ issue.isbn }}</span>
+            </td>
+            <td>
+              <span class="text-title">{{ issue.member_name }}</span>
+              <span class="text-sub">{{ issue.member_code }}</span>
+            </td>
+            <td>{{ issue.issue_date }}</td>
+            <td>{{ issue.due_date }}</td>
+            <td>
+              {% if issue.urgency == 'overdue' %}
+                <span class="badge-urgency-overdue">⚠️ Overdue ({{ issue.overdue_days }}d)</span>
+              {% elif issue.urgency == 'due_soon' %}
+                <span class="badge-urgency-due-soon">⏰ Due Soon ({% if issue.days_left == 0 %}Today{% else %}{{ issue.days_left }}d{% endif %})</span>
+              {% else %}
+                <span class="badge-urgency-ok">✓ Active</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ url_for('return_books') }}?transaction_id={{ issue.id }}" class="btn btn-secondary btn-sm">
+                Process Return
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="7" style="text-align: center; color: var(--color-slate-400); padding: 2.5rem;">
+              No books currently on loan. All copies are returned.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

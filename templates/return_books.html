@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Return Books{% endblock %}
+{% block page_title %}Circulation: Return Books{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+  <!-- Return Book Form -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Process Book Return</h3>
+        <p class="card-subtitle">Select an active loan record to calculate late fees and restock copies</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('return_books') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-grid">
+          <!-- Transaction / Book Lookup -->
+          <div class="form-group full-width">
+            <label class="form-label" for="loanSelect">Select Active Borrowing Record *</label>
+            <select id="loanSelect" name="transaction_id" class="form-control" required>
+              <option value="">-- Choose Active Loan Record --</option>
+              {% for issue in active_loans %}
+                <option value="{{ issue.id }}"
+                        data-due-date="{{ issue.due_date }}"
+                        {% if selected_transaction_id == issue.id %}selected{% endif %}>
+                  {{ issue.transaction_code }}: "{{ issue.book_title }}" — Borrowed by {{ issue.member_name }} (Due: {{ issue.due_date }})
+                </option>
+              {% endfor %}
+            </select>
+            <span class="form-helper">Selecting a record automatically computes any applicable overdue late fees.</span>
+          </div>
+
+          <!-- Return Date -->
+          <div class="form-group">
+            <label class="form-label" for="returnDate">Return Date *</label>
+            <input type="date" id="returnDate" name="return_date" class="form-control" value="{{ today_str }}" required>
+          </div>
+
+          <!-- Book Condition -->
+          <div class="form-group">
+            <label class="form-label" for="bookCondition">Physical Condition *</label>
+            <select id="bookCondition" name="condition" class="form-control">
+              <option value="Good / Normal Wear">Good / Normal Wear</option>
+              <option value="Like New">Like New</option>
+              <option value="Damaged / Binder Wear">Damaged (Minor repair required)</option>
+            </select>
+          </div>
+
+          <!-- Overdue Fine -->
+          <div class="form-group">
+            <label class="form-label" for="fineAmount">Assessed Overdue Fine</label>
+            <input type="text" id="fineAmount" class="form-control" value="$0.00" readonly style="font-weight: 700; background-color: var(--color-slate-50);">
+            <span id="overdueNote" class="form-helper" style="font-weight: 500;">Select a loan record to calculate fines.</span>
+          </div>
+
+          <!-- Return Remarks -->
+          <div class="form-group">
+            <label class="form-label" for="returnRemarks">Return Remarks (Optional)</label>
+            <input type="text" id="returnRemarks" name="remarks" class="form-control" placeholder="e.g. Returned on time / pristine condition">
+          </div>
+        </div>
+
+        <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="reset" class="btn btn-secondary">Clear</button>
+          <button type="submit" class="btn btn-primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 16 5 12 9 8"/>
+              <path d="M20 12H5"/>
+            </svg>
+            Complete Return & Restock
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Late Fee Configuration & Return Procedures -->
+  <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+    <!-- Late Fee Policy Configuration -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h3 class="card-title">Late Fee Configuration</h3>
+          <p class="card-subtitle">Adjust daily overdue penalty rate</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('update_late_fee') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" for="lateFeeRate">Fine Rate Per Day ($)</label>
+            <div style="display: flex; gap: 0.5rem;">
+              <input type="number" id="lateFeeRate" name="rate" class="form-control" step="0.05" min="0" value="{{ '%.2f'|format(late_fee_per_day) }}" required>
+              <button type="submit" class="btn btn-secondary" style="white-space: nowrap;">Update Rate</button>
+            </div>
+            <span class="form-helper">Currently set to ${{ "%.2f"|format(late_fee_per_day) }}/day. Affects new returns.</span>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Return Procedures Card -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h3 class="card-title">Return Procedures</h3>
+          <p class="card-subtitle">Inventory restock checklist</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <ol style="padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.88rem; color: var(--color-slate-700);">
+          <li>Verify borrower account identity and transaction match.</li>
+          <li>Inspect book spine, pages, and barcode label.</li>
+          <li>Confirm fine calculation with the patron before completing.</li>
+          <li>Click <strong>Complete Return & Restock</strong> to restore the book's available stock.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pending Return Records -->
+<div class="card" style="margin-top: 2rem;">
+  <div class="card-header">
+    <div>
+      <h3 class="card-title">Pending Returns & Overdue Tracking</h3>
+      <p class="card-subtitle">Active loans monitored for scheduled return or fine assessments</p>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Loan ID</th>
+          <th>Book Title</th>
+          <th>Borrower</th>
+          <th>Due Date</th>
+          <th>Accrued Overdue</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if active_loans %}
+          {% for issue in active_loans %}
+          <tr>
+            <td><span class="text-sub">{{ issue.transaction_code }}</span></td>
+            <td>
+              <span class="text-title">{{ issue.book_title }}</span>
+              <span class="text-sub">ISBN: {{ issue.isbn }}</span>
+            </td>
+            <td>
+              <span class="text-title">{{ issue.member_name }}</span>
+              <span class="text-sub">{{ issue.member_code }}</span>
+            </td>
+            <td>{{ issue.due_date }}</td>
+            <td>
+              {% if issue.overdue_days > 0 %}
+                <strong style="color: var(--stat-red);">${{ "%.2f"|format(issue.calculated_fine) }}</strong>
+                <span class="text-sub">({{ issue.overdue_days }}d overdue)</span>
+              {% else %}
+                <span style="color: var(--stat-green); font-weight: 500;">$0.00 (On Time)</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if issue.urgency == 'overdue' %}
+                <span class="badge-urgency-overdue">⚠️ Overdue ({{ issue.overdue_days }}d)</span>
+              {% elif issue.urgency == 'due_soon' %}
+                <span class="badge-urgency-due-soon">⏰ Due Soon ({% if issue.days_left == 0 %}Today{% else %}{{ issue.days_left }}d{% endif %})</span>
+              {% else %}
+                <span class="badge-urgency-ok">✓ On Schedule</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ url_for('return_books') }}?transaction_id={{ issue.id }}" class="btn btn-secondary btn-sm">
+                Process Return
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="7" style="text-align: center; color: var(--color-slate-400); padding: 2.5rem;">
+              All borrowed volumes have been checked in and returned!
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
