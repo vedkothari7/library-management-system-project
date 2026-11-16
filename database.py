@@ -15,18 +15,21 @@ from werkzeug.security import generate_password_hash
 
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library.db")
 DB_PATH = os.environ.get("DATABASE_PATH", DEFAULT_DB_PATH)
-BACKUPS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backups")
+BACKUPS_DIR = "/tmp/backups" if os.environ.get("VERCEL") else os.path.join(os.path.dirname(os.path.abspath(__file__)), "backups")
 
 
 def get_db_path() -> str:
     """
     Returns the configured SQLite database file path.
     Supports DATABASE_PATH environment variable for cloud persistent disk mounts (e.g. Render /var/data/library.db).
+    On Vercel serverless runtime, defaults to /tmp/library.db (the only writable directory).
     Falls back to module-level DB_PATH.
     """
     env_path = os.environ.get("DATABASE_PATH")
     if env_path and env_path.strip():
         return os.path.abspath(env_path.strip())
+    if os.environ.get("VERCEL"):
+        return "/tmp/library.db"
     return DB_PATH
 
 
@@ -348,6 +351,16 @@ def init_db():
         _seed_default_admin(conn)
 
     conn.close()
+
+
+def ensure_db_ready():
+    """
+    Ensures database exists and schema is initialized.
+    Essential for ephemeral and serverless runtime environments (such as Vercel /tmp).
+    """
+    target = get_db_path()
+    if not os.path.exists(target) or os.path.getsize(target) == 0:
+        init_db()
 
 
 def _seed_default_admin(conn):
