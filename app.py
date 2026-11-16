@@ -281,6 +281,12 @@ def dashboard():
     )
 
 
+@app.route("/api/index")
+def vercel_entrypoint_fallback():
+    """Safety fallback for direct serverless function calls."""
+    return redirect(url_for("dashboard"))
+
+
 # ==============================================================================
 # BOOK MANAGEMENT & SANITIZED CSV EXPORT ROUTES
 # ==============================================================================
