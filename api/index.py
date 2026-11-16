@@ -1,7 +1,7 @@
 """
 api/index.py - Vercel Serverless Function Entry Point for Athena Library Management System.
 Exports WSGI Flask application callable for @vercel/python runtime.
-Includes VercelPathFixMiddleware to restore correct WSGI PATH_INFO after Vercel rewrites.
+Includes VercelPathFixMiddleware to restore correct WSGI PATH_INFO from Vercel rewrites.
 """
 import os
 import sys
@@ -25,28 +25,30 @@ class VercelPathFixMiddleware:
     def __call__(self, environ, start_response):
         path_info = environ.get("PATH_INFO", "")
         if path_info in ("/api/index", "/api/index.py", "/api", "/api/"):
+            matched_path = environ.get("HTTP_X_MATCHED_PATH")
             query_string = environ.get("QUERY_STRING", "")
             params = parse_qs(query_string, keep_blank_values=True)
 
-            orig_path = None
-            if "__vercel_original_path" in params:
-                orig_path = params.pop("__vercel_original_path")[0]
+            target = None
+            if "path" in params:
+                val = params.pop("path")[0]
+                target = "/" + val if not val.startswith("/") else val
                 new_pairs = [(k, v) for k, vs in params.items() for v in vs]
                 environ["QUERY_STRING"] = urlencode(new_pairs)
-            elif "HTTP_X_MATCHED_PATH" in environ:
-                orig_path = environ["HTTP_X_MATCHED_PATH"]
-            elif "HTTP_X_FORWARDED_URI" in environ:
-                orig_path = environ["HTTP_X_FORWARDED_URI"].split("?")[0]
+            elif matched_path and not matched_path.startswith("/api/index"):
+                target = matched_path
+            else:
+                target = "/"
 
-            if orig_path:
-                while orig_path.startswith("//"):
-                    orig_path = orig_path[1:]
-                if not orig_path.startswith("/"):
-                    orig_path = "/" + orig_path
-                environ["PATH_INFO"] = orig_path
+            while target.startswith("//"):
+                target = target[1:]
+            if not target.startswith("/"):
+                target = "/" + target
+
+            environ["PATH_INFO"] = target
 
         return self.wsgi_app(environ, start_response)
 
 
-# Wrap the Flask WSGI application with path fixing middleware
+# Wrap Flask WSGI application with path fixing middleware
 app.wsgi_app = VercelPathFixMiddleware(app.wsgi_app)

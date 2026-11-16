@@ -281,9 +281,11 @@ def dashboard():
     )
 
 
-@app.route("/api/index")
+@app.route("/api/index", methods=["GET", "POST"])
 def vercel_entrypoint_fallback():
     """Safety fallback for direct serverless function calls."""
+    if "admin_id" not in session:
+        return redirect(url_for("login"))
     return redirect(url_for("dashboard"))
 
 
