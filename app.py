@@ -10,6 +10,7 @@ import logging
 import secrets
 from datetime import date, timedelta
 from decimal import Decimal
+from urllib.parse import parse_qs, urlencode
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, Response
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -20,6 +21,40 @@ import security
 import validators
 
 app = Flask(__name__)
+
+
+class VercelPathFixMiddleware:
+    """
+    WSGI Middleware to fix Vercel internal rewrites.
+    Restores the original request PATH_INFO from rewrite query parameters,
+    ensuring Flask routes (and static assets) match accurately.
+    """
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        path_info = environ.get("PATH_INFO", "")
+        if path_info in ("/api/index", "/api/index.py", "/api", "/api/"):
+            query_string = environ.get("QUERY_STRING", "")
+            params = parse_qs(query_string, keep_blank_values=True)
+
+            target = None
+            if "path" in params:
+                val = params.pop("path")[0]
+                target = "/" + val if not val.startswith("/") else val
+                new_pairs = [(k, v) for k, vs in params.items() for v in vs]
+                environ["QUERY_STRING"] = urlencode(new_pairs)
+            else:
+                target = "/"
+
+            while target.startswith("//"):
+                target = target[1:]
+            if not target.startswith("/"):
+                target = "/" + target
+
+            environ["PATH_INFO"] = target
+
+        return self.wsgi_app(environ, start_response)
 
 # ==============================================================================
 # ENVIRONMENT & SECURITY CONFIGURATION
@@ -70,6 +105,9 @@ if PROXIES_COUNT > 0:
         x_prefix=PROXIES_COUNT
     )
     app.logger.info(f"ProxyFix middleware enabled with {PROXIES_COUNT} trusted upstream proxies.")
+
+# Apply Vercel Serverless Path Restoration Middleware
+app.wsgi_app = VercelPathFixMiddleware(app.wsgi_app)
 
 # Initialize database schema and pre-migration backup if needed
 init_db()
@@ -283,15 +321,10 @@ def dashboard():
 
 @app.route("/api/index", methods=["GET", "POST"])
 def vercel_entrypoint_fallback():
-    """Diagnostic route to inspect exact Vercel request environ."""
-    return jsonify({
-        "PATH_INFO": request.environ.get("PATH_INFO"),
-        "RAW_URI": request.environ.get("RAW_URI"),
-        "REQUEST_URI": request.environ.get("REQUEST_URI"),
-        "QUERY_STRING": request.environ.get("QUERY_STRING"),
-        "HTTP_X_MATCHED_PATH": request.environ.get("HTTP_X_MATCHED_PATH"),
-        "HEADERS": {k: v for k, v in request.environ.items() if k.startswith("HTTP_")}
-    })
+    """Safety fallback for direct serverless function calls."""
+    if "admin_id" not in session:
+        return redirect(url_for("login"))
+    return redirect(url_for("dashboard"))
 
 
 # ==============================================================================
